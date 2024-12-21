@@ -106,25 +106,36 @@ def fetch_data_in_chunks(data_type, symbol, trading_days):
     progress_bar.empty()
     return df_all
 
-def fetch_multi_ticker_data(ticker, start_date, end_date, data_type, interval):
-    """Fetch data for a single ticker in multi-ticker mode"""
-    interval_mapping = {
-        "1 minute": "1/minute",
-        "5 minutes": "5/minute",
-        "1 hour": "1/hour",
-        "1 day": "1/day"
-    }
-    api_interval = interval_mapping.get(interval)
+def fetch_stock_data_in_chunks(api_key, ticker, start_date, end_date, interval, chunk_size=52):
+    """Fetch stock data in chunks for a given ticker."""
+    nyse = mcal.get_calendar('NYSE')
+    trading_days = nyse.valid_days(start_date=start_date, end_date=end_date)
     
-    if data_type == "Stock":
-        df = fetch_stock_data(ticker, start_date, end_date, api_interval)
-    else:
-        df = fetch_forex_data(ticker, start_date, end_date, api_interval)
+    df_all = pd.DataFrame()
     
-    if not df.empty:
+    for i in range(0, len(trading_days), chunk_size):
+        start_date_range = trading_days[i].date().isoformat()
+        end_date_range = trading_days[min(i + chunk_size, len(trading_days) - 1)].date().isoformat()
+        
+        # Use the existing fetch_stock_data function with the interval parameter
+        interval_mapping = {
+            "1 minute": "1/minute",
+            "5 minutes": "5/minute",
+            "1 hour": "1/hour",
+            "1 day": "1/day"
+        }
+        api_interval = interval_mapping.get(interval)
+        
+        df_chunk = fetch_stock_data(ticker, start_date_range, end_date_range, api_interval)
+        if not df_chunk.empty:
+            df_all = pd.concat([df_all, df_chunk])
+        
+        time.sleep(12)  # Rate limiting
+
+    if not df_all.empty:
         # Create separate columns for each OHLCV value
         renamed_cols = {}
-        for col in df.columns:
+        for col in df_all.columns:
             if col == 'o':
                 renamed_cols[col] = f"{ticker}_open"
             elif col == 'h':
@@ -140,8 +151,56 @@ def fetch_multi_ticker_data(ticker, start_date, end_date, data_type, interval):
             elif col == 'n':
                 renamed_cols[col] = f"{ticker}_trades"
             
-        df = df.rename(columns=renamed_cols)
-    return df
+        df_all = df_all.rename(columns=renamed_cols)
+
+    return df_all
+
+def fetch_forex_data_in_chunks(api_key, pair, start_date, end_date, interval, chunk_size=30):
+    """Fetch forex data in chunks for a given pair."""
+    nyse = mcal.get_calendar('NYSE')
+    trading_days = nyse.valid_days(start_date=start_date, end_date=end_date)
+    
+    df_all = pd.DataFrame()
+    
+    for i in range(0, len(trading_days), chunk_size):
+        start_date_range = trading_days[i].date().isoformat()
+        end_date_range = trading_days[min(i + chunk_size, len(trading_days) - 1)].date().isoformat()
+        
+        interval_mapping = {
+            "1 minute": "1/minute",
+            "5 minutes": "5/minute",
+            "1 hour": "1/hour",
+            "1 day": "1/day"
+        }
+        api_interval = interval_mapping.get(interval)
+        
+        df_chunk = fetch_forex_data(pair, start_date_range, end_date_range, api_interval)
+        if not df_chunk.empty:
+            # Create separate columns for each OHLCV value
+            renamed_cols = {}
+            for col in df_chunk.columns:
+                if col == 'o':
+                    renamed_cols[col] = f"{pair}_open"
+                elif col == 'h':
+                    renamed_cols[col] = f"{pair}_high"
+                elif col == 'l':
+                    renamed_cols[col] = f"{pair}_low"
+                elif col == 'c':
+                    renamed_cols[col] = f"{pair}_close"
+                elif col == 'v':
+                    renamed_cols[col] = f"{pair}_volume"
+                elif col == 'vw':
+                    renamed_cols[col] = f"{pair}_vwap"
+                elif col == 'n':
+                    renamed_cols[col] = f"{pair}_trades"
+            
+            df_chunk = df_chunk.rename(columns=renamed_cols)
+            df_all = pd.concat([df_all, df_chunk])
+        
+        time.sleep(12)  # Rate limiting
+
+    return df_all
+
 def create_candlestick_chart(df, title, show_volume=False):
     fig = go.Figure()
     
@@ -242,13 +301,11 @@ if mode == "Multi-Ticker Download":
                 
                 for i, ticker in enumerate(tickers):
                     st.text(f"Fetching data for {ticker}...")
-                    df = fetch_multi_ticker_data(
-                        ticker,
-                        start_date.isoformat(),
-                        end_date.isoformat(),
-                        data_type,
-                        interval
-                    )
+                    if data_type == "Forex":
+                        df = fetch_forex_data_in_chunks(API_KEY, ticker, start_date.isoformat(), end_date.isoformat(), interval)
+                    else:
+                        df = fetch_stock_data_in_chunks(API_KEY, ticker, start_date.isoformat(), end_date.isoformat(), interval)
+                    
                     if not df.empty:
                         all_data.append(df)
                     progress_bar.progress((i + 1) / len(tickers))
@@ -268,9 +325,9 @@ if mode == "Multi-Ticker Download":
                     
                     # Display data
                     st.subheader("Preview of Combined Data")
-                    st.dataframe(final_df)
-
-
+                    st.dataframe(final_df.head())
+                    
+                    # Add column information
                     st.subheader("Column Information")
                     st.markdown("""
                     For each ticker, the following columns are created:
@@ -278,13 +335,11 @@ if mode == "Multi-Ticker Download":
                     - _high: Highest price
                     - _low: Lowest price
                     - _close: Closing price
-                   - _volume: Trading volume (if available)
-                   - _vwap: Volume-weighted average price (if available)
-                   - _trades: Number of trades (if available)
-                   """)
+                    - _volume: Trading volume (if available)
+                    - _vwap: Volume-weighted average price (if available)
+                    - _trades: Number of trades (if available)
+                    """)
                     
-                    
-           
                     # Download button
                     csv = final_df.to_csv()
                     st.download_button(
@@ -296,80 +351,4 @@ if mode == "Multi-Ticker Download":
                 else:
                     st.error("No data available for the selected tickers and time range")
 
-else:  # Single Ticker Analysis or Forex Analysis
-    # Data type selection
-    data_type = "Forex" if mode == "Forex Analysis" else "Stock"
-
-    # Manual symbol input with help text
-    if data_type == "Stock":
-        help_text = "Enter stock ticker symbol (e.g., AAPL, MSFT, GOOGL)"
-    else:
-        help_text = "Enter forex pair (e.g., EURUSD, GBPUSD, USDJPY)"
-
-    symbol = st.text_input("Enter Symbol:", help=help_text).upper()
-
-    # Lookback period in days
-    days_lookback = st.number_input("How many days of historical data?", 
-                                   min_value=1, max_value=365, value=7)
-
-    # Fetch Data Button
-    if st.button("Fetch Data"):
-        if not symbol:
-            st.error("Please enter a symbol")
-        else:
-            # Verify ticker exists
-            with st.spinner('Verifying symbol...'):
-                if verify_ticker(symbol, data_type):
-                    trading_days = get_trading_days_lookback(days_lookback)
-                    actual_trading_days = len(trading_days)
-                    st.info(f"Fetching data for {actual_trading_days} trading days...")
-                    
-                    with st.spinner('Fetching data...'):
-                        st.session_state.data = fetch_data_in_chunks(data_type, symbol, trading_days)
-                        st.session_state.title = f"{symbol} {'Stock Price' if data_type == 'Stock' else 'Exchange Rate'}"
-                        st.session_state.symbol = symbol
-                        st.session_state.data_type = data_type
-                    
-                    if not st.session_state.data.empty:
-                        st.success(f"Successfully fetched {len(st.session_state.data)} data points")
-                else:
-                    st.error(f"Symbol not found: {symbol}")
-
-    # Display section - only show if we have data
-    if st.session_state.data is not None and not st.session_state.data.empty:
-        with st.expander("View Raw Data"):
-            st.dataframe(st.session_state.data)
-        
-        st.download_button(
-            label="Download Data as CSV",
-            data=st.session_state.data.to_csv(),
-            file_name=f"{st.session_state.symbol}_data.csv",
-            mime="text/csv"
-        )
-        
-        dates = pd.Series(st.session_state.data.index.date).unique()
-        selected_date = st.selectbox("Select a date to view:", dates)
-        
-        show_volume = st.checkbox("Show Volume", value=False)
-        
-        if selected_date:
-            daily_data = st.session_state.data[st.session_state.data.index.date == selected_date]
-            if not daily_data.empty:
-                st.plotly_chart(
-                    create_candlestick_chart(
-                        daily_data, 
-                        f"{st.session_state.title} - {selected_date}",
-                        show_volume
-                    ),
-                    use_container_width=True
-                )
-        
-        st.subheader(f"Full Period Candlestick Chart ({days_lookback} days)")
-        st.plotly_chart(
-            create_candlestick_chart(
-                st.session_state.data, 
-                st.session_state.title,
-                show_volume
-            ),
-            use_container_width=True
-        )
+else:  # Single Ticker Analysis or

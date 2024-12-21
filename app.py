@@ -283,7 +283,7 @@ if mode == "Multi-Ticker Download":
         ["1 minute", "5 minutes", "1 hour", "1 day"]
     )
     
-    if st.button("Download Data"):
+    if st.button("Fetch Data"):
         if not tickers:
             st.error("Please enter at least one ticker")
         else:

@@ -1,3 +1,4 @@
+
 import streamlit as st
 import pandas as pd
 import pandas_market_calendars as mcal
@@ -325,7 +326,7 @@ if mode == "Multi-Ticker Download":
                     
                     # Display data
                     st.subheader("Preview of Combined Data")
-                    st.dataframe(final_df.head())
+                    st.dataframe(final_df)
                     
                     # Add column information
                     st.subheader("Column Information")
@@ -350,5 +351,81 @@ if mode == "Multi-Ticker Download":
                     )
                 else:
                     st.error("No data available for the selected tickers and time range")
+ # Single Ticker Analysis or
+else:  # Single Ticker Analysis or Forex Analysis
+    # Data type selection
+    data_type = "Forex" if mode == "Forex Analysis" else "Stock"
 
-else:  # Single Ticker Analysis or
+    # Manual symbol input with help text
+    if data_type == "Stock":
+        help_text = "Enter stock ticker symbol (e.g., AAPL, MSFT, GOOGL)"
+    else:
+        help_text = "Enter forex pair (e.g., EURUSD, GBPUSD, USDJPY)"
+
+    symbol = st.text_input("Enter Symbol:", help=help_text).upper()
+
+    # Lookback period in days
+    days_lookback = st.number_input("How many days of historical data?", 
+                                   min_value=1, max_value=365, value=7)
+
+    # Fetch Data Button
+    if st.button("Fetch Data"):
+        if not symbol:
+            st.error("Please enter a symbol")
+        else:
+            # Verify ticker exists
+            with st.spinner('Verifying symbol...'):
+                if verify_ticker(symbol, data_type):
+                    trading_days = get_trading_days_lookback(days_lookback)
+                    actual_trading_days = len(trading_days)
+                    st.info(f"Fetching data for {actual_trading_days} trading days...")
+                    
+                    with st.spinner('Fetching data...'):
+                        st.session_state.data = fetch_data_in_chunks(data_type, symbol, trading_days)
+                        st.session_state.title = f"{symbol} {'Stock Price' if data_type == 'Stock' else 'Exchange Rate'}"
+                        st.session_state.symbol = symbol
+                        st.session_state.data_type = data_type
+                    
+                    if not st.session_state.data.empty:
+                        st.success(f"Successfully fetched {len(st.session_state.data)} data points")
+                else:
+                    st.error(f"Symbol not found: {symbol}")
+
+    # Display section - only show if we have data
+    if st.session_state.data is not None and not st.session_state.data.empty:
+        with st.expander("View Raw Data"):
+            st.dataframe(st.session_state.data)
+        
+        st.download_button(
+            label="Download Data as CSV",
+            data=st.session_state.data.to_csv(),
+            file_name=f"{st.session_state.symbol}_data.csv",
+            mime="text/csv"
+        )
+        
+        dates = pd.Series(st.session_state.data.index.date).unique()
+        selected_date = st.selectbox("Select a date to view:", dates)
+        
+        show_volume = st.checkbox("Show Volume", value=False)
+        
+        if selected_date:
+            daily_data = st.session_state.data[st.session_state.data.index.date == selected_date]
+            if not daily_data.empty:
+                st.plotly_chart(
+                    create_candlestick_chart(
+                        daily_data, 
+                        f"{st.session_state.title} - {selected_date}",
+                        show_volume
+                    ),
+                    use_container_width=True
+                )
+        
+        st.subheader(f"Full Period Candlestick Chart ({days_lookback} days)")
+        st.plotly_chart(
+            create_candlestick_chart(
+                st.session_state.data, 
+                st.session_state.title,
+                show_volume
+            ),
+            use_container_width=True
+        )

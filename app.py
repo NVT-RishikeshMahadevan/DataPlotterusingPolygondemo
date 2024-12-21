@@ -8,7 +8,7 @@ from datetime import datetime, timedelta
 import time
 
 # Polygon API Key
-API_KEY = "VwVAwnv9LZ8w1K17a8BLjeqLe1uFPWeH"
+API_KEY = "zeZw5AVV4Pk7PJUYGI9gLbssJpEyZTs5"
 
 def verify_ticker(symbol, data_type):
     """Verify if the ticker exists"""

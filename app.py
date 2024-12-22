@@ -1,4 +1,3 @@
-
 import streamlit as st
 import pandas as pd
 import pandas_market_calendars as mcal
@@ -8,13 +7,15 @@ from datetime import datetime, timedelta
 import time
 
 # Polygon API Key
-API_KEY = "zeZw5AVV4Pk7PJUYGI9gLbssJpEyZTs5"
+API_KEY = "VwVAwnv9LZ8w1K17a8BLjeqLe1uFPWeH"
 
 def verify_ticker(symbol, data_type):
     """Verify if the ticker exists"""
     if data_type == "Stock":
         url = f"https://api.polygon.io/v3/reference/tickers/{symbol}"
-    else:
+    elif data_type == "Crypto":
+        url = f"https://api.polygon.io/v3/reference/tickers/X:{symbol}"
+    else:  # Forex
         url = f"https://api.polygon.io/v3/reference/tickers/C:{symbol}"
     
     headers = {"Authorization": f"Bearer {API_KEY}"}
@@ -76,6 +77,27 @@ def fetch_forex_data(pair, start_date, end_date, interval="1/minute"):
         st.error(f"Error fetching forex data for {pair}: {response.text}")
         return pd.DataFrame()
 
+def fetch_crypto_data(pair, start_date, end_date, interval="1/minute"):
+    url = f"https://api.polygon.io/v2/aggs/ticker/X:{pair}/range/{interval}/{start_date}/{end_date}"
+    params = {"sort": "asc", "limit": 50000}
+    headers = {"Authorization": f"Bearer {API_KEY}"}
+    response = requests.get(url, params=params, headers=headers)
+    
+    if response.status_code == 200:
+        data = response.json().get('results', [])
+        if data:
+            df = pd.DataFrame(data)
+            df['timestamp'] = pd.to_datetime(df['t'], unit='ms')
+            df.set_index('timestamp', inplace=True)
+            df.drop(columns=['t'], inplace=True)
+            return df
+        else:
+            st.warning(f"No data available for Crypto Pair {pair} in the given date range.")
+            return pd.DataFrame()
+    else:
+        st.error(f"Error fetching crypto data for {pair}: {response.text}")
+        return pd.DataFrame()
+
 def fetch_data_in_chunks(data_type, symbol, trading_days):
     df_all = pd.DataFrame()
     total_api_calls = 0
@@ -91,7 +113,9 @@ def fetch_data_in_chunks(data_type, symbol, trading_days):
         
         if data_type == "Stock":
             df = fetch_stock_data(symbol, start_date, end_date)
-        else:
+        elif data_type == "Crypto":
+            df = fetch_crypto_data(symbol, start_date, end_date)
+        else:  # Forex
             df = fetch_forex_data(symbol, start_date, end_date)
             
         total_api_calls += 1
@@ -255,11 +279,11 @@ if 'data' not in st.session_state:
 st.title("Financial Data Explorer")
 
 # Mode selection
-mode = st.radio("Choose Mode:", ("Stock Analysis", "Forex Analysis", "Multi-Ticker Download"))
+mode = st.radio("Choose Mode:", ("Stock Analysis", "Forex Analysis", "Crypto Analysis", "Multi-Ticker Download"))
 
 if mode == "Multi-Ticker Download":
     # Data type selection
-    data_type = st.radio("Choose Data Type:", ("Stock", "Forex"))
+    data_type = st.radio("Choose Data Type:", ("Stock", "Forex", "Crypto"))
     
     # Ticker input
     ticker_input = st.text_area(
@@ -283,7 +307,7 @@ if mode == "Multi-Ticker Download":
         ["1 minute", "5 minutes", "1 hour", "1 day"]
     )
     
-    if st.button("Fetch Data"):
+    if st.button("Download Data"):
         if not tickers:
             st.error("Please enter at least one ticker")
         else:
@@ -304,11 +328,41 @@ if mode == "Multi-Ticker Download":
                     st.text(f"Fetching data for {ticker}...")
                     if data_type == "Forex":
                         df = fetch_forex_data_in_chunks(API_KEY, ticker, start_date.isoformat(), end_date.isoformat(), interval)
+                    elif data_type == "Crypto":
+                        # Add proper interval mapping for crypto
+                        interval_mapping = {
+                            "1 minute": "1/minute",
+                            "5 minutes": "5/minute",
+                            "1 hour": "1/hour",
+                            "1 day": "1/day"
+                        }
+                        api_interval = interval_mapping.get(interval)
+                        df = fetch_crypto_data(ticker, start_date.isoformat(), end_date.isoformat(), api_interval)
                     else:
                         df = fetch_stock_data_in_chunks(API_KEY, ticker, start_date.isoformat(), end_date.isoformat(), interval)
                     
                     if not df.empty:
+                        # Create separate columns for each OHLCV value
+                        renamed_cols = {}
+                        for col in df.columns:
+                            if col == 'o':
+                                renamed_cols[col] = f"{ticker}_open"
+                            elif col == 'h':
+                                renamed_cols[col] = f"{ticker}_high"
+                            elif col == 'l':
+                                renamed_cols[col] = f"{ticker}_low"
+                            elif col == 'c':
+                                renamed_cols[col] = f"{ticker}_close"
+                            elif col == 'v':
+                                renamed_cols[col] = f"{ticker}_volume"
+                            elif col == 'vw':
+                                renamed_cols[col] = f"{ticker}_vwap"
+                            elif col == 'n':
+                                renamed_cols[col] = f"{ticker}_trades"
+                        
+                        df = df.rename(columns=renamed_cols)
                         all_data.append(df)
+                    
                     progress_bar.progress((i + 1) / len(tickers))
                     time.sleep(12)  # Rate limiting
                 
@@ -354,11 +408,13 @@ if mode == "Multi-Ticker Download":
  # Single Ticker Analysis or
 else:  # Single Ticker Analysis or Forex Analysis
     # Data type selection
-    data_type = "Forex" if mode == "Forex Analysis" else "Stock"
+    data_type = "Crypto" if mode == "Crypto Analysis" else "Forex" if mode == "Forex Analysis" else "Stock"
 
     # Manual symbol input with help text
     if data_type == "Stock":
         help_text = "Enter stock ticker symbol (e.g., AAPL, MSFT, GOOGL)"
+    elif data_type == "Crypto":
+        help_text = "Enter crypto pairs (e.g., BTCUSD, ETHUSD)"
     else:
         help_text = "Enter forex pair (e.g., EURUSD, GBPUSD, USDJPY)"
 

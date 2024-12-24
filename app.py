@@ -329,7 +329,6 @@ if mode == "Multi-Ticker Download":
                     if data_type == "Forex":
                         df = fetch_forex_data_in_chunks(API_KEY, ticker, start_date.isoformat(), end_date.isoformat(), interval)
                     elif data_type == "Crypto":
-                        # Add proper interval mapping for crypto
                         interval_mapping = {
                             "1 minute": "1/minute",
                             "5 minutes": "5/minute",
@@ -361,6 +360,11 @@ if mode == "Multi-Ticker Download":
                                 renamed_cols[col] = f"{ticker}_trades"
                         
                         df = df.rename(columns=renamed_cols)
+                        
+                        # Ensure index is unique before adding to all_data
+                        if not df.index.is_unique:
+                            df = df[~df.index.duplicated(keep='last')]
+                        
                         all_data.append(df)
                     
                     progress_bar.progress((i + 1) / len(tickers))
@@ -369,40 +373,52 @@ if mode == "Multi-Ticker Download":
                 progress_bar.empty()
                 
                 if all_data:
-                    # Merge dataframes with proper timestamp alignment
-                    final_df = pd.concat(all_data, axis=1)
-                    # Sort index to ensure chronological order
-                    final_df = final_df.sort_index()
-                    # Remove any duplicate columns that might have been created
-                    final_df = final_df.loc[:, ~final_df.columns.duplicated()]
-                    
-                    st.success("Data fetched successfully!")
-                    
-                    # Display data
-                    st.subheader("Preview of Combined Data")
-                    st.dataframe(final_df)
-                    
-                    # Add column information
-                    st.subheader("Column Information")
-                    st.markdown("""
-                    For each ticker, the following columns are created:
-                    - _open: Opening price
-                    - _high: Highest price
-                    - _low: Lowest price
-                    - _close: Closing price
-                    - _volume: Trading volume (if available)
-                    - _vwap: Volume-weighted average price (if available)
-                    - _trades: Number of trades (if available)
-                    """)
-                    
-                    # Download button
-                    csv = final_df.to_csv()
-                    st.download_button(
-                        label="Download Combined Data as CSV",
-                        data=csv,
-                        file_name=f"multi_ticker_data_{start_date}_{end_date}.csv",
-                        mime="text/csv"
-                    )
+                    try:
+                        # Merge all dataframes
+                        final_df = pd.concat(all_data, axis=1)
+                        
+                        # Remove any duplicate columns
+                        final_df = final_df.loc[:, ~final_df.columns.duplicated()]
+                        
+                        # Sort index to ensure chronological order
+                        final_df = final_df.sort_index()
+                        
+                        st.success("Data fetched successfully!")
+                        
+                        # Display data info
+                        st.subheader("Data Summary")
+                        st.write(f"Date Range: {final_df.index.min()} to {final_df.index.max()}")
+                        st.write(f"Total Records: {len(final_df)}")
+                        
+                        # Display preview
+                        st.subheader("Preview of Combined Data")
+                        st.dataframe(final_df)
+                        
+                        # Add column information
+                        st.subheader("Column Information")
+                        st.markdown("""
+                        For each ticker, the following columns are created:
+                        - _open: Opening price
+                        - _high: Highest price
+                        - _low: Lowest price
+                        - _close: Closing price
+                        - _volume: Trading volume (if available)
+                        - _vwap: Volume-weighted average price (if available)
+                        - _trades: Number of trades (if available)
+                        """)
+                        
+                        # Download button
+                        csv = final_df.to_csv()
+                        st.download_button(
+                            label="Download Combined Data as CSV",
+                            data=csv,
+                            file_name=f"multi_ticker_data_{start_date}_{end_date}.csv",
+                            mime="text/csv"
+                        )
+                        
+                    except Exception as e:
+                        st.error(f"Error merging data: {str(e)}")
+                        st.error("Please try again with a smaller date range or fewer tickers")
                 else:
                     st.error("No data available for the selected tickers and time range")
  # Single Ticker Analysis or

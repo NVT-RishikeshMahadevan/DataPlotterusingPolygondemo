@@ -7,7 +7,7 @@ from datetime import datetime, timedelta
 import time
 
 # Polygon API Key
-API_KEY = "VwVAwnv9LZ8w1K17a8BLjeqLe1uFPWeH"
+API_KEY = "zeZw5AVV4Pk7PJUYGI9gLbssJpEyZTs5"
 
 def verify_ticker(symbol, data_type):
     """Verify if the ticker exists"""
@@ -438,7 +438,7 @@ else:  # Single Ticker Analysis or Forex Analysis
 
     # Lookback period in days
     days_lookback = st.number_input("How many days of historical data?", 
-                                   min_value=1, max_value=365, value=7)
+                                   min_value=1, max_value=730, value=7)
 
     # Fetch Data Button
     if st.button("Fetch Data"):
